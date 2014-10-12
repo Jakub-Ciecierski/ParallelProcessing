@@ -17,7 +17,7 @@ public class PhD extends Thread{
 			for (int i = 0; i < Main.TEST_CASES; i++) {
 				Random rand = new Random();
 				
-				Main.s_participant.acquire();
+				Main.s_table.acquire();
 				//Main.s_professor.
 				/* critical section */
 
@@ -28,28 +28,35 @@ public class PhD extends Thread{
 				 * somebody else took the products, we have to check
 				 * if the products are available
 				 */
-				while (!productsAvailable()) {
+				if (!productsAvailable()) {
 					System.out.println("PhD: " + id
 							+ " waiting for his products...");
 
+					
 					// let other participants look for products
-					Main.s_participant.release();
+					Main.s_table.release();
 					
 					// wait for waiter
-					Main.s_refill.acquire();
+					Main.s_phd.acquire();
 
-					Main.s_participant.acquire();
+					Main.s_table.acquire();
+				}
+				
+				// now that we know that all the products are available, take them
+				try {
+					takeProducts();
+				} catch (ProductException e) {
+					e.printStackTrace();
 				}
 
-				// now that we know that all the products are available, take them
-				takeProducts();
-
+				releaseParticipants();
+				
 				System.out.println("***** PhD: " + id + " took his products *****");
 				Main.printState();
 
 				Thread.sleep(rand.nextInt(Main.PHD_BREAK_MAX - Main.PHD_BREAK_MIN) + Main.PHD_BREAK_MIN);
 
-				Main.s_participant.release();
+				Main.s_table.release();
 
 				/* End of critical section */
 			}
@@ -59,9 +66,55 @@ public class PhD extends Thread{
 	}
 
 	/**
+	 * Checks if awaiting participants are allowed
+	 * to be released to take their products
+	 */
+	private void releaseParticipants() {
+		/*
+		 * Whenever a participant is waken up by a waiter he has to
+		 * wait for the waiter to finish checking every
+		 * set of products availability to release the main
+		 * s_table semaphore.
+		 * 
+		 * Thus if a waiter woke somebody up, further checking of products
+		 * has to include the fact that some will be missing 
+		 * 
+		 */
+		int coffee_count = 0;
+		int milk_count = 0;
+		int sugar_count = 0;
+
+		if (Professor.productsAvailable()) {
+			if( Main.s_professor.getQueueLength() > 0) {
+				Main.s_professor.release();
+				System.out.println("PhD: " + id + " waking up a professor");
+
+				coffee_count++;
+				milk_count++;
+				sugar_count++;
+			}
+		}
+		if (Main.s_doctor.getQueueLength() > 0) {
+			if (Main.coffee - coffee_count > 0 && Main.milk - milk_count > 0) {
+				Main.s_doctor.release();
+				System.out.println("PhD: " + id + " waking up a doctor");
+				
+				coffee_count++;
+				milk_count++;
+			}
+		}
+		if (Main.s_student.getQueueLength() > 0) {
+			if (Main.milk - milk_count > 0 && Main.sugar - sugar_count > 0) {
+				Main.s_student.release();
+				System.out.println("PhD: " + id + " waking up a student");
+			}
+		}
+	}
+	
+	/**
 	 * Checks if the participant can take his products
 	 */
-	private boolean productsAvailable() {
+	static public boolean productsAvailable() {
 		if (Main.coffee <= 0 || Main.sugar <= 0) {
 			return false;
 		}
@@ -70,8 +123,12 @@ public class PhD extends Thread{
 
 	/**
 	 * Take the products
+	 * @throws ProductException 
 	 */
-	private void takeProducts() {
+	private void takeProducts() throws ProductException {
+		if (!productsAvailable()) {
+			throw new ProductException("Products has been stolen by different process");
+		}
 		Main.coffee--;
 		Main.sugar--;
 	}

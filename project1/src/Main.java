@@ -22,7 +22,7 @@ import java.util.concurrent.Semaphore;
  */
 public class Main {
 
-	public static final int TEST_CASES = 5;
+	public static final int TEST_CASES = 50;
 
 	/*
 	 * The maximum count of products in their containers.
@@ -46,8 +46,8 @@ public class Main {
 	 * 
 	 * Measured in miliseconds.
 	 */
-	public static final int WAITER_BREAK_MIN = 2000;
-	public static final int WAITER_BREAK_MAX = 6000;
+	public static final int WAITER_BREAK_MIN = 200;
+	public static final int WAITER_BREAK_MAX = 600;
 
 	public static final int PROFESSOR_BREAK_MIN = 1000;
 	public static final int PROFESSOR_BREAK_MAX = 2000;
@@ -71,21 +71,24 @@ public class Main {
 	/*
 	 * 
 	 */
-	public static Semaphore s_waiter;
-	public static Semaphore s_participant;
-	public static Semaphore s_refill;
+	public static Semaphore s_table;
 	public static Semaphore s_professor;
+	public static Semaphore s_doctor;
+	public static Semaphore s_phd;
+	public static Semaphore s_student;
 
 	public static void main(String argv[]) {
 		coffee = COFFEE_COUNT;
 		milk = MILK_COUNT;
 		sugar = SUGAR_COUNT;
 
-		s_waiter = new Semaphore(1);
-		s_participant = new Semaphore(1);
-		s_refill = new Semaphore(0);
-		s_professor = new Semaphore(1);
-
+		s_table = new Semaphore(1);
+		s_professor = new Semaphore(0);
+		s_doctor = new Semaphore(0);
+		s_phd = new Semaphore(0);
+		s_student = new Semaphore(0);
+		
+		
 		for (int i = 0; i < PROFESSOR_COUNT; i++) {
 			Professor p = new Professor(i + 1);
 			p.start();
@@ -105,7 +108,7 @@ public class Main {
 			Student s = new Student(i + 1);
 			s.start();
 		}
-		
+
 		for (int i = 0; i < WAITER_COUNT; i++) {
 			Waiter w = new Waiter(i+1);
 			w.start();
@@ -114,10 +117,15 @@ public class Main {
 
 	public static void printState() {
 		System.out.println();
-		System.out.println("****CURRENT STATE****");
+		System.out.println("****PRODUCTS****");
 		System.out.println("COFFEE:" + coffee);
 		System.out.println("MILK:" + milk);
 		System.out.println("SUGAR:" + sugar);
+		System.out.println("****QUEUES****");
+		System.out.println("PROFESSORS:" + s_professor.getQueueLength());
+		System.out.println("DOCTORS:" + s_doctor.getQueueLength());
+		System.out.println("PHDS:" + s_phd.getQueueLength());
+		System.out.println("STUDENTS:" + s_student.getQueueLength());
 		System.out.println();
 	}
 }
