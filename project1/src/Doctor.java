@@ -4,9 +4,6 @@ import java.util.Random;
  * Drinks coffee and milk
  */
 public class Doctor extends Thread{
-	/*Git test comment*/
-	/*Git test comment*/
-	/*Git test comment*/
 	private int id;
 	
 	public Doctor(int id){
