@@ -16,7 +16,6 @@ public class Waiter extends Thread {
 				System.out.println("***** Waiter: " + id + " came to table *****");
 				
 				Main.s_table.acquire();
-
 				/** critical section of a table **/
 	
 				System.out.println("***** Waiter: " + id + " after s_table.acquire *****");
@@ -27,8 +26,8 @@ public class Waiter extends Thread {
 				}
 				releaseParticipants();
 				Main.printState();
+
 				/** end of critical section of a table **/
-				
 				Main.s_table.release();
 
 				Thread.sleep(rand.nextInt(Main.WAITER_BREAK_MAX
@@ -60,16 +59,18 @@ public class Waiter extends Thread {
 		 * 
 		 */
 		for (int i = 0; i < Main.PROFESSOR_COUNT; i++) {
-			// buffer[i] equal to 1 means that the participant
-			// awaits to take his products
-			if (Main.professor_queue[i] == 1
+			if (Main.professor_queue_counter > 0
 					&& (Main.coffee - Main.virtual_coffee_consumption) > 0
 					&& (Main.milk - Main.virtual_milk_consumption) > 0
 					&& (Main.sugar - Main.virtual_sugar_consumption) > 0) {
-				Main.professor_queue[i] = 0;
+				// remove the participant from the queue counter
+				Main.professor_queue_counter--;
+				// release him from the queue
 				Main.s_professor.release();
+
 				System.out.println("Waiter: " + id + " waking up a professor");
-				
+
+				// keep track of the virtual consumption
 				Main.virtual_coffee_consumption++;
 				Main.virtual_milk_consumption++;
 				Main.virtual_sugar_consumption++;
@@ -78,9 +79,9 @@ public class Waiter extends Thread {
 		}
 
 		for (int i = 0; i < Main.DOCTOR_COUNT; i++) {
-			if (Main.doctor_queue[i] == 1 && Main.coffee - Main.virtual_coffee_consumption > 0
+			if (Main.doctor_queue_counter > 0 && Main.coffee - Main.virtual_coffee_consumption > 0
 					&& Main.milk - Main.virtual_milk_consumption > 0) {
-				Main.doctor_queue[i] = 0;
+				Main.doctor_queue_counter--;
 				Main.s_doctor.release();
 				System.out.println("Waiter: " + id + " waking up a doctor");
 
@@ -91,9 +92,9 @@ public class Waiter extends Thread {
 		}
 
 		for (int i = 0; i < Main.PHD_COUNT; i++) {
-			if (Main.phd_queue[i] == 1 && Main.coffee - Main.virtual_coffee_consumption> 0
+			if (Main.phd_queue_counter > 0 && Main.coffee - Main.virtual_coffee_consumption> 0
 					&& Main.sugar - Main.virtual_sugar_consumption > 0) {
-				Main.phd_queue[i] = 0;
+				Main.phd_queue_counter--;
 				Main.s_phd.release();
 				System.out.println("Waiter: " + id + " waking up a phd");
 
@@ -103,9 +104,9 @@ public class Waiter extends Thread {
 		}
 
 		for (int i = 0; i < Main.STUDENT_COUNT; i++) {
-			if (Main.student_queue[i] == 1 && Main.milk - Main.virtual_milk_consumption > 0
+			if (Main.student_queue_counter > 0 && Main.milk - Main.virtual_milk_consumption > 0
 					&& Main.sugar - Main.virtual_sugar_consumption > 0) {
-				Main.student_queue[i] = 0;
+				Main.student_queue_counter--;
 				Main.s_student.release();
 				System.out.println("Waiter: " + id + " waking up a student");
 				

@@ -31,10 +31,11 @@ import java.util.concurrent.Semaphore;
  * consumption of each set of products.
  * 
  * 
- * Waiters can release participants' semaphores, by checking
- * if any of them are waiting for consumption (using participant_queue[])
+ * Participants and Waiters can release other (including themselves)
+ * participants' semaphores, by checking
+ * if any of them are waiting for consumption (using participant_queue)
  * and further save the virtual state of consumption 
- * using virtual_product_count counter to prevent two independent waiters,
+ * using virtual_product_count counter to prevent two independent participants,
  * who accessed the table before the freshly released 
  * participants, to release more participants
  * than the current product count allows. 
@@ -106,25 +107,15 @@ public class Main {
 	public static volatile int sugar;
 	
 	/*
-	 * participant_queue[]
+	 * participant_queue
 	 * 
 	 * Keep the track of the queues
 	 * when waiting for missing products.
-	 * 
-	 * Example:
-	 * x_queue[i] = 1 	if i-th x-participant
-	 * 					is awaiting products.
-	 * x_queue[i] = 0 	if i-th x-participant
-	 * 					has been freed from waiting.
-	 * 
-	 * TODO Change it to simple counters
-	 * and make sure that participant can access products
-	 * from very beginning - independent of waiters
 	 */
-	public static int professor_queue[];
-	public static int doctor_queue[];
-	public static int phd_queue[];
-	public static int student_queue[];
+	public static int professor_queue_counter;
+	public static int doctor_queue_counter;
+	public static int phd_queue_counter;
+	public static int student_queue_counter;
 	
 	/*
 	 * virtual_product_consumption
@@ -147,7 +138,6 @@ public class Main {
 	public static int virtual_sugar_consumption = 0;
 
 
-
 	public static void main(String argv[]) {
 		// fill the containers
 		coffee = COFFEE_COUNT;
@@ -157,16 +147,29 @@ public class Main {
 		// binary semaphore for accessing the table
 		s_table = new Semaphore(1);
 		
+		/*
+		 *  Initiate semaphores with value 0.
+		 *  Notice that each participant, before acquiring his semaphore
+		 *  will release all participants waiting for missing products,
+		 *  including himself, provided that the system 
+		 *  allows him to (queue_count + virtual_consumption).
+		 *  
+		 *  Assume the scenario when a single Professor comes to the table.
+		 *  First he will increase professor_queue_counter, and then
+		 *  enter releaseParticipant function which in fact will release himself.
+		 *  Then he goes to acquire his semaphore 
+		 *  (he doesn't wait since he's just released himself)
+		 */
 		s_professor = new Semaphore(0);
 		s_doctor = new Semaphore(0);
 		s_phd = new Semaphore(0);
 		s_student = new Semaphore(0);
 		
-		// fill queues with 0's (not waiting) for each participant
-		professor_queue = new int[PROFESSOR_COUNT];
-		doctor_queue = new int[DOCTOR_COUNT];
-		phd_queue = new int[PHD_COUNT];
-		student_queue = new int[STUDENT_COUNT];
+		// nobody is waiting in the queue at the start
+		professor_queue_counter = 0;
+		doctor_queue_counter = 0;
+		phd_queue_counter = 0;
+		student_queue_counter = 0;
 		
 		// Spawn participants to have some fun
 		for (int i = 0; i < PROFESSOR_COUNT; i++) {
