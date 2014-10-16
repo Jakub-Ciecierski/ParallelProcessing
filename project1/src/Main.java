@@ -116,6 +116,10 @@ public class Main {
 	 * 					is awaiting products.
 	 * x_queue[i] = 0 	if i-th x-participant
 	 * 					has been freed from waiting.
+	 * 
+	 * TODO Change it to simple counters
+	 * and make sure that participant can access products
+	 * from very beginning - independent of waiters
 	 */
 	public static int professor_queue[];
 	public static int doctor_queue[];
