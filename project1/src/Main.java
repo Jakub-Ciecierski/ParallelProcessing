@@ -35,7 +35,7 @@ import java.util.concurrent.Semaphore;
  * Participants and Waiters can release other (including themselves)
  * participants' semaphores, by checking
  * if any of them are waiting for consumption (using participant_queue)
- * and further save the virtual state of consumption 
+ * and further saving the virtual state of consumption 
  * using virtual_product_count counter to prevent two independent participants,
  * who accessed the table before the freshly released 
  * participants, to release more participants

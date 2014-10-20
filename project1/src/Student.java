@@ -25,9 +25,8 @@ public class Student extends Thread{
 				System.out.println("***** Student: " + id + " announced interest in products *****");
 				Main.s_table.release();
 				
-				// ask the waiter if he can get the products
+				// enter the queue
 				Main.s_student.acquire();
-				
 				System.out.println("***** Student: " + id + " after s_student.acquire() *****");
 				
 				// only one person can access the table at a time
@@ -76,7 +75,7 @@ public class Student extends Thread{
 		if (!productsAvailable()) {
 			throw new ProductException("Products has been stolen by different process");
 		}
-		// refer to definitions for documentation of virtual consumption
+		// refer to Main.java for documentation of virtual consumption
 		Main.virtual_milk_consumption--;
 		Main.virtual_sugar_consumption--;
 		Main.milk--;

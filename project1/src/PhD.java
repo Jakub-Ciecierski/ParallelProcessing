@@ -26,9 +26,8 @@ public class PhD extends Thread{
 				System.out.println("***** PhD: " + id + " announced interest in products *****");
 				Main.s_table.release();
 				
-				// ask the waiter if he can get the products
+				// enter the queue
 				Main.s_phd.acquire();
-				
 				System.out.println("***** PhD: " + id + " after s_phd.acquire() *****");
 				
 				// only one person can access the table at a time
@@ -77,7 +76,7 @@ public class PhD extends Thread{
 		if (!productsAvailable()) {
 			throw new ProductException("Products has been stolen by different process");
 		}
-		// refer to definitions for documentation of virtual consumption
+		// refer to Main.java for documentation of virtual consumption
 		Main.virtual_coffee_consumption--;
 		Main.virtual_sugar_consumption--;
 

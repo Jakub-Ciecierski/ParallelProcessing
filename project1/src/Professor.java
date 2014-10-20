@@ -25,7 +25,7 @@ public class Professor extends Thread {
 				Main.releaseParticipants();
 				Main.s_table.release();
 				
-				// ask the waiter if he can get the products
+				// enter the queue
 				Main.s_professor.acquire();
 				System.out.println("***** Professor: " + id + " after s_professor.acquire() *****");
 				
@@ -76,7 +76,7 @@ public class Professor extends Thread {
 		if (!productsAvailable()) {
 			throw new ProductException("Products has been stolen by different process");
 		}
-		// refer to definitions for documentation of virtual consumption
+		// refer to Main.java for documentation of virtual consumption
 		Main.virtual_coffee_consumption--;
 		Main.virtual_milk_consumption--;
 		Main.virtual_sugar_consumption--;
