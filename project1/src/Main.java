@@ -1,3 +1,4 @@
+import java.util.Random;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -34,7 +35,7 @@ import java.util.concurrent.Semaphore;
  * Participants and Waiters can release other (including themselves)
  * participants' semaphores, by checking
  * if any of them are waiting for consumption (using participant_queue)
- * and further save the virtual state of consumption 
+ * and further saving the virtual state of consumption 
  * using virtual_product_count counter to prevent two independent participants,
  * who accessed the table before the freshly released 
  * participants, to release more participants
@@ -156,7 +157,7 @@ public class Main {
 		 *  
 		 *  Assume the scenario when a single Professor comes to the table.
 		 *  First he will increase professor_queue_counter, and then
-		 *  enter releaseParticipant function which in fact will release himself.
+		 *  enter releaseParticipant() function which in fact will release himself.
 		 *  Then he goes to acquire his semaphore 
 		 *  (he doesn't wait since he's just released himself)
 		 */
@@ -219,5 +220,114 @@ public class Main {
 		System.out.println("\t\tSTUDENTS:   " + s_student.getQueueLength());
 		System.out.println("**************************************");
 		System.out.println();
+	}
+	
+	/**
+	 * Checks if awaiting participants are allowed
+	 * to be released to take their products
+	 */
+	public static void releaseParticipants() {
+		/*
+		 * If somebody has been waken up, further checking of products
+		 * has to include the fact that some will be missing.
+		 * 
+		 * For example:
+		 * (Main.coffee - Main.virtual_coffee_consumption) shows the true count
+		 * of coffee in the system. 
+		 */
+
+		// Professors have the priority provided that
+		// they can access their products immediately.
+		releaseProfessor();
+
+		// Serve other participants in random order
+		Random rand = new Random();
+
+		boolean done = true;
+		int served[] = new int[3];
+
+		while(done){
+			int next = rand.nextInt(3);
+			while(served[next] == 1){
+				next = rand.nextInt(3);
+			}
+			switch(next){
+				case 0:
+					served[0] = 1;
+					releaseDoctor();
+					break;
+				case 1:
+					served[1] = 1;
+					releasePhD();
+					break;
+				case 2:
+					served[2] = 1;
+					releaseStudent();
+					break;
+			}
+			if(served[0] == 1
+				&& served[1] == 1
+				&& served[2] == 1){
+				done = false;
+			}
+		}
+	}
+
+	private static void releaseProfessor(){
+		while (Main.professor_queue_counter > 0
+				&& (Main.coffee - Main.virtual_coffee_consumption) > 0
+				&& (Main.milk - Main.virtual_milk_consumption) > 0
+				&& (Main.sugar - Main.virtual_sugar_consumption) > 0) {
+			// remove the participant from the queue counter
+			Main.professor_queue_counter--;
+			// release him from the queue
+			Main.s_professor.release();
+
+			System.out.println("Professor has been waken up");
+
+			// keep track of the virtual consumption
+			Main.virtual_coffee_consumption++;
+			Main.virtual_milk_consumption++;
+			Main.virtual_sugar_consumption++;
+		}
+	}
+	
+	private static void releaseDoctor(){
+		while (Main.doctor_queue_counter > 0 
+				&& Main.coffee - Main.virtual_coffee_consumption > 0
+				&& Main.milk - Main.virtual_milk_consumption > 0) {
+			Main.doctor_queue_counter--;
+			Main.s_doctor.release();
+			System.out.println("Doctor has been waken up");
+
+			Main.virtual_coffee_consumption++;
+			Main.virtual_milk_consumption++;
+		}
+	}
+	
+	private static void releasePhD(){
+		while (Main.phd_queue_counter > 0 
+				&& Main.coffee - Main.virtual_coffee_consumption> 0
+				&& Main.sugar - Main.virtual_sugar_consumption > 0) {
+			Main.phd_queue_counter--;
+			Main.s_phd.release();
+			System.out.println("PhD has been waken up");
+
+			Main.virtual_coffee_consumption++;
+			Main.virtual_sugar_consumption++;
+		}
+	}
+	
+	private static void releaseStudent(){
+		while (Main.student_queue_counter > 0 
+				&& Main.milk - Main.virtual_milk_consumption > 0
+				&& Main.sugar - Main.virtual_sugar_consumption > 0) {
+			Main.student_queue_counter--;
+			Main.s_student.release();
+			System.out.println("Student has been waken up");
+			
+			Main.virtual_milk_consumption++;
+			Main.virtual_sugar_consumption++;
+		}
 	}
 }
