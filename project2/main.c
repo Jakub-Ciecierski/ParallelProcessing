@@ -40,17 +40,22 @@
  * the participant goes to sleep - frees the seat
  */
 
-int debug = 0;
-void *participant(void* ptr);
-void *waiter(void* ptr);
-void *table(void* ptr);
+void *participant_runner(void* ptr);
+void *waiter_snack_runner(void* ptr);
+void *waiter_wine_runner(void* ptr);
+void *table_runner(void* ptr);
 
-//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 const int SNACK_MAX = 5;
 const int WINE_MAX = 4;
 const int CONSUMPTION_COUNT = 5;
+
 int PARTICIPANT_COUNT;
+
+// when to shut down the table checker
+volatile int table_continue = 1;
+
+int debug = 0;
 
 typedef struct 
 {	
@@ -58,7 +63,7 @@ typedef struct
 	int count;
 
 	pthread_mutex_t mutex;
-}snack_state;
+}snack_packet;
 
 typedef struct
 {
@@ -66,30 +71,33 @@ typedef struct
 	int count;
 
 	pthread_mutex_t mutex;
-}wine_state;
+}wine_packet;
  
- /* The consumption set for participants
+ /* 
+ * The consumption set for participants
  * Contains information about quantity of snacks and wine
  * and their mutexes.
  */
 typedef struct
 {
 	int id;
-	int left;
-	int right;
+	int prev;
+	int next; // TODO can replace those with pointers to those packets
 
-	snack_state* snack;
-	wine_state* wine;
+	snack_packet* snack;
+	wine_packet* wine;
 	
 	pthread_mutex_t mutex;
-}consumption_set;
+	pthread_cond_t condition_var;
+}participant_packet;
 
 typedef struct
 {
 	// id of the current thread
 	int id;
-		
-	consumption_set** dinners;
+	int participant_count;
+
+	participant_packet** dinners;
 }table_packet;
 
 void main(int argc, char** argv)
@@ -108,11 +116,10 @@ void main(int argc, char** argv)
 	{
 		debug = 1;
 	}
-	PARTICIPANT_COUNT = count;
 
-	// init variables
-	snack_state* snack[count/2];
-	wine_state* wine[count/2];
+	snack_packet* snack[count/2];
+	wine_packet* wine[count/2];
+	participant_packet* dinners[count];
 
 	for(i = 0; i < count/2; i++)
 	{
@@ -120,8 +127,8 @@ void main(int argc, char** argv)
 		pthread_mutex_t mutex_wine = PTHREAD_MUTEX_INITIALIZER;
 		
 		// init the memory
-		snack[i] = malloc(sizeof(snack_state));
-		wine[i] = malloc(sizeof(wine_state));
+		snack[i] = malloc(sizeof(snack_packet));
+		wine[i] = malloc(sizeof(wine_packet));
 		
 		// init the mutexes
 		snack[i]->mutex = mutex_snack;
@@ -138,13 +145,11 @@ void main(int argc, char** argv)
 		wine[i]->id = i;
 	}
 
-	consumption_set* dinners[count];
-
 	// prepare dinner for participants
 	for(i = 0; i < count; i++)
 	{
-		consumption_set* dinner;
-		dinners[i] = malloc(sizeof(consumption_set));
+		participant_packet* dinner;
+		dinners[i] = malloc(sizeof(participant_packet));
 		
 		// create dinner for each participant
 		// according to the set rules
@@ -162,59 +167,88 @@ void main(int argc, char** argv)
 			dinners[i]->wine = wine[(i-1)/2];
 		}
 		dinners[i]->id = i;
-		int left = (i - 1)%PARTICIPANT_COUNT;
-		int right = (i + 1)%PARTICIPANT_COUNT;
-		if (left < 0 )
+		int prev = (i - 1)%count;
+		int next = (i + 1)%count;
+		if (prev < 0 )
 		{
-			left = PARTICIPANT_COUNT -1;
+			prev = count -1;
 		}
-		dinners[i]->left = left;
-		dinners[i]->right = right;
+		dinners[i]->prev = prev;
+		dinners[i]->next = next;
 
 		pthread_mutex_t mutex_dinner = PTHREAD_MUTEX_INITIALIZER;
+		pthread_cond_t  condition_var   = PTHREAD_COND_INITIALIZER;
+
 		dinners[i]->mutex = mutex_dinner;
+		dinners[i]->condition_var = condition_var;
 	}
-	
-	// create threads
-	pthread_t threads[count];
+
+	// create table thread
+	pthread_t table_thread;	
+	{
+		table_packet* table = malloc(sizeof(table_packet));
+		table->dinners = dinners;
+		table->participant_count = count;
+
+		pthread_create(&table_thread,NULL,&table_runner,(void*)table);
+	}
+
+	// create participant threads
+	pthread_t participant_threads[count];
 	for(i = 0;i < count;i++)
 	{
 		table_packet* table = malloc(sizeof(table_packet));
 		table->dinners = dinners;
 		table->id = i;
+		table->participant_count = count;
+
 		pthread_t thread;
-		pthread_create(&thread,NULL,&participant,(void*)table);
-		threads[i] = thread;
+		pthread_create(&thread,NULL,&participant_runner,(void*)table);
+		participant_threads[i] = thread;
 		
 		// TODO, threads use resources that have not been
 		// created yet in this loop,
 		sleep(3);
 	}
 
+	// create waiter threads
+	pthread_t waiter_snack_thread;
+	pthread_t waiter_wine_thread;
+	{
+		table_packet* table = malloc(sizeof(table_packet));
+		table->dinners = dinners;
+		table->participant_count = count;
+
+		pthread_create(&waiter_snack_thread,NULL,&waiter_snack_runner,(void*)table);
+		pthread_create(&waiter_wine_thread,NULL,&waiter_wine_runner,(void*)table);
+	}
 	// wait for all to finish - VERY IMPORTANT
 	for(i = 0;i < count;i++)
 	{
-		pthread_join(threads[i],NULL);
+		pthread_join(participant_threads[i],NULL);
 	}
+	pthread_join(table_thread,NULL);
+	pthread_join(waiter_snack_thread,NULL);
+	pthread_join(waiter_wine_thread,NULL);
 }
 
-void *participant(void* ptr)
+void *participant_runner(void* ptr)
 {
 	// receive the data
 	table_packet* table = ptr;
-	consumption_set** dinners = table->dinners;
-	consumption_set* dinner = dinners[table->id];
+	participant_packet** dinners = table->dinners;
+	participant_packet* dinner = dinners[table->id];
 	
-	// take left and right neighbor
-	consumption_set* left_dinner = dinners[dinner->left];
-	consumption_set* right_dinner = dinners[dinner->right];
+	// take prev and next neighbor
+	participant_packet* prev_dinner = dinners[dinner->prev];
+	participant_packet* next_dinner = dinners[dinner->next];
 	
 	if(debug)
 	{
 		printf("******************************\n");
 		printf("P:#%d created with adr:%d\n",dinner->id,dinner);
-		printf("Left P:#%d with adr:%d \n",dinner->left,left_dinner);
-		printf("Right P:#%d with adr:%d \n",dinner->right,right_dinner);
+		printf("Prev P:#%d with adr:%d \n",dinner->prev,prev_dinner);
+		printf("Next P:#%d with adr:%d \n",dinner->next,next_dinner);
 		printf("snack:#%d \n",dinner->snack->id);
 		printf("wine:#%d \n",dinner->wine->id);
 		printf("******************************\n\n");
@@ -224,37 +258,139 @@ void *participant(void* ptr)
 	for(i = 0;i < CONSUMPTION_COUNT; i++)
 	{
 		pthread_mutex_lock(&(dinner->mutex));
-		// lock his left and right neighbor
-		pthread_mutex_lock(&(left_dinner->mutex));
-		pthread_mutex_lock(&(right_dinner->mutex));
+		pthread_cond_wait(&(dinner->condition_var), &(dinner->mutex) );
+
+		// lock his prev and next neighbor
+		pthread_mutex_lock(&(prev_dinner->mutex));
+		pthread_mutex_lock(&(next_dinner->mutex));
 		
+		// start of critical section
 		printf("******************************\n");
-		printf("P:#%d Locked P:#%d and P:#%d \n",dinner->id,left_dinner->id,right_dinner->id);
+		printf("P:#%d Locked P:#%d and P:#%d \n",dinner->id,prev_dinner->id,next_dinner->id);
 	
 		// consume
-		//dinner->snack->count--;
-		//dinner->wine->count--;
+		dinner->snack->count--;
+		dinner->wine->count--;
 
+		printf("Currect snack:#%d count: %d\n",dinner->snack->id,dinner->snack->count);
+		printf("Currect wine:#%d count: %d\n",dinner->wine->id,dinner->wine->count);
 		printf("P: #%d leaving the table \n", dinner->id);
 		printf("******************************\n\n");
-
 		// end of critical section
+
+		pthread_mutex_unlock(&(next_dinner->mutex));
+		pthread_mutex_unlock(&(prev_dinner->mutex));
 		pthread_mutex_unlock(&(dinner->mutex));
-		pthread_mutex_unlock(&(left_dinner->mutex));
-		pthread_mutex_unlock(&(right_dinner->mutex));
 		sleep(5);
 	}
 }
 
-void *table(void* ptr)
+void *table_runner(void* ptr)
 {
 	// receive the data
 	table_packet* table = ptr;
-	consumption_set** dinners = table->dinners;
+	participant_packet** dinners = table->dinners;
 
 	int i = 0;
-	for(i = 0;i < PARTICIPANT_COUNT;i++)
+	while(table_continue)
 	{
-		consumption_set* dinner = dinners[i];
+		for(i = 0;i < table->participant_count;i++)
+		{
+			participant_packet* dinner = dinners[i];
+			if(dinner->snack->count > 0 && dinner->wine->count > 0)
+			{
+				pthread_cond_signal(&(dinner->condition_var));
+			}
+		}
+	}
+}
+
+void *waiter_snack_runner(void* ptr)
+{
+	// receive the data
+	table_packet* table = ptr;
+	participant_packet** dinners = table->dinners;
+	
+	// iterate through all participants
+	// and look for non-full bowls of snacks
+	while(table_continue)
+	{
+		printf("************************** \n");
+		printf("Snack Waiter \n");
+		printf("SW: Locked everyone \n");
+		printf("SW: Refilling all bowls of snacks \n");
+		int i = 0;
+		for(i = 0;i < table->participant_count;i++)
+		{
+			participant_packet* dinner = dinners[i];
+			pthread_mutex_lock(&(dinner->mutex));
+		}
+		
+		for(i = 0;i < table->participant_count;i++)
+		{
+			participant_packet* dinner = dinners[i];
+			dinner->snack->count = SNACK_MAX;
+		}
+
+		for(i = 0;i < table->participant_count;i++)
+		{
+			participant_packet* dinner = dinners[i];
+			pthread_mutex_unlock(&(dinner->mutex));
+		}
+		printf("************************** \n\n");
+		sleep(20);
+	}
+}
+
+void *waiter_wine_runner(void* ptr)
+{
+	// receive the data
+	table_packet* table = ptr;
+	participant_packet** dinners = table->dinners;
+	
+	// iterate through all participants
+	// and look for non-full bowls of snacks
+	while(table_continue)
+	{
+		printf("************************** \n");
+		printf("Wine Waiter \n");
+		int i = 0;
+		for(i = 0;i < table->participant_count;i++)
+		{
+			participant_packet* dinner = dinners[i];
+			if(dinner->wine->count == 0)
+			{
+				// to access specific resource
+				// we have to lock this participant
+				// and his immediate neighbor that is using the same resource
+				participant_packet* prev_dinner = dinners[dinner->prev];
+				participant_packet* next_dinner = dinners[dinner->next];
+				printf("WW: refilling wine:#%d \n",dinner->wine->id);
+				if(dinner->wine->id == prev_dinner->wine->id)
+				{
+					pthread_mutex_lock(&(dinner->mutex));
+					pthread_mutex_lock(&(prev_dinner->mutex));
+
+					printf("WW: Locked P:#%d and P:#%d \n",dinner->id,prev_dinner->id);
+					dinner->wine->count = WINE_MAX;				
+
+					pthread_mutex_unlock(&(prev_dinner->mutex));
+					pthread_mutex_unlock(&(dinner->mutex));
+				}
+				else
+				{
+					pthread_mutex_lock(&(dinner->mutex));
+					pthread_mutex_lock(&(next_dinner->mutex));
+
+					printf("WW: Locked P:#%d and P:#%d \n",dinner->id,next_dinner->id);
+					dinner->wine->count = WINE_MAX;
+
+					pthread_mutex_unlock(&(next_dinner->mutex));
+					pthread_mutex_unlock(&(dinner->mutex));
+				}
+			}
+		}
+		printf("************************** \n\n");
+		sleep(10);
 	}
 }
