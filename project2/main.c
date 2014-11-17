@@ -1,17 +1,15 @@
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h> // POSIX
-#include <unistd.h> // sleep
-#include <stdlib.h> // random
-#include <time.h> // time for seed
+#include <pthread.h>	// POSIX
+#include <unistd.h> 	// sleep
+#include <stdlib.h> 	// random
+#include <time.h> 		// time for seed
+
+#define KGRN  "\x1B[32m"
+#define RESET "\033[0m"
 
 /*
- * Compile with:
- * cc -pthread main.c -o main
- */
- 
-/*
- * Task description
+ * Task description:
  * 
  * 1) Participants are seated in round table.
  * Number of participants is n >= 4, where n is even
@@ -42,10 +40,23 @@
  * the participant goes to sleep - frees the seat
  */
 
+// thread functions 
 void *participant_runner(void* ptr);
 void *waiter_snack_runner(void* ptr);
 void *waiter_wine_runner(void* ptr);
 
+/*
+ * States of Participant
+ *
+ * EATING - When Participant is actually eating
+ * HUNGRY - When Participant is interested in eating,
+ * 			in that time he checks if he can eat and
+ *			waits if needed.
+ * THINKING - When Participant is thinking, idle
+ * ABOUT_TO_EAT - When Participant got signaled by other thread,
+ * 				indicating that he's able to eat but still waiting
+ *				for that thread or more to unlock the mutex.
+ */
 typedef enum {EATING, HUNGRY, THINKING, ABOUT_TO_EAT} state_t;
 
 const int SNACK_MAX = 5;
@@ -55,14 +66,10 @@ const int CONSUMPTION_COUNT = 10;
 // used to generate random numbers
 unsigned int seed;
 
-int PARTICIPANT_COUNT;
-
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// when to shut down the table checker
+// when to shut down the table
 volatile int table_continue = 1;
-
-int debug = 0;
 
 /*
  * Snack packet, holding its count and virtual consumption
@@ -71,7 +78,6 @@ typedef struct
 {	
 	int id;
 	int count;
-	int virtual_consumption;
 }snack_packet;
 
 /*
@@ -81,7 +87,6 @@ typedef struct
 {
 	int id;
 	int count;
-	int virtual_consumption;
 }wine_packet;
  
  /* 
@@ -107,7 +112,6 @@ struct participant_packet
 
 typedef struct
 {
-	// id of the current thread
 	int id;
 	int participant_count;
 
@@ -129,27 +133,16 @@ void main(int argc, char** argv)
 		return;
 	}
 
-	if(argc > 2)
-	{
-		debug = 1;
-	}
 	seed = time(NULL);
 	snack_packet* snack[count/2];
 	wine_packet* wine[count/2];
 	participant_packet* dinners[count];
-	
 
 	for(i = 0; i < count/2; i++)
 	{
 		// init the memory
 		snack[i] = malloc(sizeof(snack_packet));
 		wine[i] = malloc(sizeof(wine_packet));
-
-		int virtual_consumption_snack = 0;
-		int virtual_consumption_wine = 0;
-		// init virtual consumption
-		snack[i]->virtual_consumption = virtual_consumption_snack;
-		wine[i]->virtual_consumption = virtual_consumption_wine;
 		
 		// init the count
 		int snack_count = SNACK_MAX;
@@ -171,7 +164,7 @@ void main(int argc, char** argv)
 		// create dinner for each participant
 		// according to the set rules
 		
-		// if participant has is even index
+		// if participant has even index
 		if(i%2 == 0)
 		{
 			dinners[i]->snack = snack[(i%count)/2];
@@ -186,7 +179,7 @@ void main(int argc, char** argv)
 		dinners[i]->id = i;
 		dinners[i]->state = THINKING;
 
-		pthread_cond_t  condition_var   = PTHREAD_COND_INITIALIZER;
+		pthread_cond_t  condition_var  = PTHREAD_COND_INITIALIZER;
 
 		dinners[i]->condition_var = condition_var;
 	}
@@ -241,8 +234,13 @@ void main(int argc, char** argv)
 	// stop the waiters
 	table_continue = 0;
 
+	printf("\n Waiting for waiters to clean up... \n");
+
 	pthread_join(waiter_snack_thread,NULL);
 	pthread_join(waiter_wine_thread,NULL);
+	
+	printf("\n Program finishing... \n");
+	return;
 }
 
 void *participant_runner(void* ptr)
@@ -251,19 +249,6 @@ void *participant_runner(void* ptr)
 	table_packet* table = ptr;
 	participant_packet** dinners = table->dinners;
 	participant_packet* dinner = dinners[table->id];
-
-	if(debug)
-	{
-		printf("******************************\n");
-		printf("P:#%d created with dinners adr:%d\n",dinner->id,dinners);
-		printf("P:#%d created with adr:%d\n",dinner->id,dinner);
-		printf("P:#%d created with mutex adr:%d\n",dinner->id,&(mutex));
-		printf("Prev P:#%d with adr:%d \n",dinner->prev->id,dinner->prev);
-		printf("Next P:#%d with adr:%d \n",dinner->next->id,dinner->next);
-		printf("snack:#%d \n",dinner->snack->id);
-		printf("wine:#%d \n",dinner->wine->id);
-		printf("******************************\n\n");
-	}
 
 	int i;
 	for(i = 0;i < CONSUMPTION_COUNT; i++)
@@ -282,22 +267,20 @@ void *participant_runner(void* ptr)
 
 		printf("P:#%d is HUNGRY \n",dinner->id);
 
-		// if one of his neighbors are eating
-		// or his resources are not avaible, wait in condition variable
-		if(!(dinner->prev->state != EATING
-			&& dinner->next->state != EATING
-			&& dinner->snack->count - dinner->snack->virtual_consumption > 0
-			&& dinner->wine->count - dinner->wine->virtual_consumption > 0 ))
-		{	
+		// If one of his neighbors are eating
+		// or his resources are not avaible, wait in condition variable.
+		// The order of statements is important.
+		// First We check if any neighbor is eating to make sure
+		// we don't access resources that are being used.
+		if(!((dinner->prev->state != EATING) && (dinner->prev->state != ABOUT_TO_EAT )
+			&& (dinner->next->state != EATING) && (dinner->next->state != ABOUT_TO_EAT) 
+			&& (dinner->snack->count > 0) && (dinner->wine->count > 0 )))
+		{
 			printf("P:#%d is waiting for his turn \n",dinner->id);
 
 			pthread_cond_wait(&(dinner->condition_var), &(mutex));			
 
 			printf("P:#%d got released, about to eat \n",dinner->id);
-
-			// when signaled, fix the virtual consumption value
-			dinner->snack->virtual_consumption--;
-			dinner->wine->virtual_consumption--;
 		}
 
 		// now he is ready to eat
@@ -305,9 +288,12 @@ void *participant_runner(void* ptr)
 		pthread_mutex_unlock(&(mutex));
 		// END OF GET RESOURCES
 
-		printf("******************************\n");
-
 		// EATING
+
+		// Happens outside critical section.
+		// Thanks to states we are sure that these resources
+		// are used by only one process.
+		printf("******************************\n");
 		dinner->snack->count--;
 		dinner->wine->count--;
 		int j = 0;
@@ -317,61 +303,59 @@ void *participant_runner(void* ptr)
 			// simulate eating
 			printf("P:#%d eating...\n",dinner->id);
 			sleep(1);
-		}
-		printf("******************************\n\n");
+		}		
 		// END OF EATING
 
 		// PUT RESOURCES
 		pthread_mutex_lock(&(mutex));
+		
+		printf("P:#%d Finished eating \n",dinner->id);
+		printf(KGRN "P:#%d snack count: %d\n" RESET,dinner->id, dinner->snack->count);
+		printf(KGRN "P:#%d wine count: %d\n" RESET,dinner->id, dinner->wine->count);
+		printf("******************************\n\n");
+
 		dinner->state = THINKING;
 
 		// wake up previous if possible
 		if(dinner->prev->state == HUNGRY)
 		{
 			// check if previous of his previous is not eating
-			if(dinner->prev->prev->state != EATING
-				&& dinner->prev->snack->count - dinner->prev->snack->virtual_consumption > 0
-				&& dinner->prev->wine->count - dinner->prev->wine->virtual_consumption > 0)
+			if((dinner->prev->prev->state != EATING ) && (dinner->prev->prev->state != ABOUT_TO_EAT )
+				&& (dinner->prev->snack->count > 0 ) && (dinner->prev->wine->count > 0))
 			{
-					dinner->prev->snack->virtual_consumption++;
-					dinner->prev->wine->virtual_consumption++;
-
-					printf("P:#%d signaled P:#%d \n",dinner->id, dinner->prev->id);
-					
-					// to prevent that somebody else signals him twice
-					// change the state to ABOUT_TO_EAT
-					dinner->prev->state = ABOUT_TO_EAT;
-					pthread_cond_signal(&(dinner->prev->condition_var));
+				printf("P:#%d signaled P:#%d \n",dinner->id, dinner->prev->id);
+				
+				// to prevent that somebody else signals him twice
+				// change the state to ABOUT_TO_EAT
+				dinner->prev->state = ABOUT_TO_EAT;
+				pthread_cond_signal(&(dinner->prev->condition_var));
 			}
 		}
 		// wake up next if possible
 		if(dinner->next->state == HUNGRY)
 		{
 			// check if next of his next is not eating
-			if(dinner->next->next->state != EATING
-				&& dinner->next->snack->count - dinner->next->snack->virtual_consumption > 0
-				&& dinner->next->wine->count - dinner->next->wine->virtual_consumption> 0)
+			if((dinner->next->next->state != EATING) && (dinner->next->next->state != ABOUT_TO_EAT)
+				&& (dinner->next->snack->count > 0) && (dinner->next->wine->count > 0))
 			{
-					dinner->next->snack->virtual_consumption++;
-					dinner->next->wine->virtual_consumption++;
-					printf("P:#%d signaled P:#%d \n",dinner->id, dinner->next->id);
-					
-					// to prevent that somebody else signals him twice
-					// change the state to ABOUT_TO_EAT
-					dinner->next->state = ABOUT_TO_EAT;
-					pthread_cond_signal(&(dinner->next->condition_var));
+				printf("P:#%d signaled P:#%d \n",dinner->id, dinner->next->id);
+				
+				// to prevent that somebody else signals him twice
+				// change the state to ABOUT_TO_EAT
+				dinner->next->state = ABOUT_TO_EAT;
+				pthread_cond_signal(&(dinner->next->condition_var));
 			}
 		}
 		// TOAST
 
-		// to toast, simply go to sleep inside the global mutex
+		// To toast, simply go to sleep inside this critical section
 		// no other participant will start eating
 		// THESE ALREADY EATING WILL FINISH THEIR CONSUMPTION BEFORE GOING TO LISTEN
 		int toast = rand_r(&seed) % 5;
 		if(toast == 0)
 		{
 			int toast_time = 15;
-			printf("P:#%d starting toast, nobody will start consumption for: %d seconds \n\n",dinner->id,toast_time);
+			printf("P:#%d starting TOAST, nobody will start consumption for: %d seconds \n\n",dinner->id,toast_time);
 			int k = toast_time;
 			for(k = toast_time; k > 0; k--)
 			{
@@ -393,45 +377,31 @@ void *waiter_snack_runner(void* ptr)
 	// receive the data
 	table_packet* table = ptr;
 	participant_packet** dinners = table->dinners;
-	
-	if(debug)
-	{
-		printf("******************************\n");
-		printf("Snack Waiter created with mutex: %d\n",&(mutex));
-		printf("Snack Waiter created with dinners adr:%d\n",table->dinners);
-		int j = 0;
-		for(j = 0; j < table->participant_count; j++)
-		{
-			printf("P:#%d with dinner adr:%d\n",dinners[j]->id,dinners[j]);
-		}
-		printf("******************************\n\n");
-	}
-	
+
 	while(table_continue)
 	{
 		pthread_mutex_lock(&(mutex));
 
 		printf("************************** \n");
 		printf("Snack Waiter \n");
-		printf("SW: Locked everyone \n");
 		printf("SW: Refilling all bowls of snacks \n");
 
 		int i = 0;
 		for(i = 0;i < table->participant_count;i++)
 		{
 			participant_packet* dinner = dinners[i];
-			dinner->snack->count = SNACK_MAX; //TODO synchronize
+			if( dinner->snack->count != SNACK_MAX)
+			{
+				dinner->snack->count = SNACK_MAX;
+			}
 
 			// signal hungry participants which are eligible for eating
 			if(dinner->state == HUNGRY)
 			{
-				if(dinner->prev->state != EATING
-					&& dinner->next->state != EATING
-					&& dinner->snack->count - dinner->snack->virtual_consumption > 0
-					&& dinner->wine->count - dinner->wine->virtual_consumption > 0 )
+				if((dinner->prev->state != EATING) && (dinner->prev->state != ABOUT_TO_EAT)
+					&& (dinner->next->state != EATING) && (dinner->next->state != ABOUT_TO_EAT)
+					&& (dinner->snack->count > 0) && (dinner->wine->count > 0 ))
 				{
-					dinner->snack->virtual_consumption++;
-					dinner->wine->virtual_consumption++;
 					printf("SW: signaled P:#%d \n",dinner->id);
 					
 					// to prevent that somebody else signals him twice
@@ -448,10 +418,8 @@ void *waiter_snack_runner(void* ptr)
 		{
 			snack_packet* snack = (table->snacks)[j];
 			wine_packet* wine = (table->wines)[j];
-			printf("Currect snack:#%d count: %d\n",snack->id, snack->count);
-			printf("Currect wine:#%d count: %d\n",wine->id, wine->count);
-			printf("Currect wine:#%d virtual_consumption: %d\n",snack->id,snack->virtual_consumption);
-			printf("Currect wine:#%d virtual_consumption: %d\n\n",wine->id,wine->virtual_consumption);
+			printf(KGRN "Currect snack:#%d count: %d\n" RESET, snack->id, snack->count);
+			printf(KGRN "Currect wine:#%d count: %d\n" RESET, wine->id, wine->count);
 		}
 		printf("************************** \n\n");
 		pthread_mutex_unlock(&(mutex));
@@ -466,62 +434,58 @@ void *waiter_wine_runner(void* ptr)
 	// receive the data
 	table_packet* table = ptr;
 	participant_packet** dinners = table->dinners;
-	
-	if(debug)
-	{
-		printf("******************************\n");
-		printf("Wine Waiter created with mutex: %d\n",&(mutex));
-		printf("Wine Waiter created with dinners adr:%d\n",table->dinners);
-		printf("******************************\n\n");
-	}
-	
+
 	while(table_continue)
 	{
 		pthread_mutex_lock(&(mutex));
 		printf("************************** \n");
 		printf("Wine Waiter \n");
+		
+		// refill all empty bottles
+		int j = 0;
+		for(j = 0; j < (table->participant_count)/2; j++)
+		{
+			wine_packet* wine = (table->wines)[j];
+			if(wine->count == 0)
+			{
+				wine->count = WINE_MAX;
+				printf("WW: refilling wine:#%d \n",wine->id);
+			}
+		}
+		
+		// wake up participants
 		int i = 0;
 		for(i = 0;i < table->participant_count;i++)
 		{
 			participant_packet* dinner = dinners[i];
-			if(dinner->wine->count == 0)
+
+			// signal hungry participants which are eligible for eating
+			if(dinner->state == HUNGRY)
 			{
-				dinner->wine->count = WINE_MAX;
-				printf("WW: refilling wine:#%d \n",dinner->wine->id);
-				
-				// signal hungry participants which are eligible for eating
-				if(dinner->state == HUNGRY)
+				if ((dinner->prev->state != EATING) && (dinner->prev->state != ABOUT_TO_EAT)
+					&& (dinner->next->state != EATING) && (dinner->next->state != ABOUT_TO_EAT)
+					&& ( dinner->snack->count > 0) && (dinner->wine->count > 0 ))
 				{
-					if (dinner->prev->state != EATING
-						&& dinner->next->state != EATING
-						&& dinner->snack->count - dinner->snack->virtual_consumption > 0
-						&& dinner->wine->count - dinner->wine->virtual_consumption > 0 )
-					{
-						dinner->snack->virtual_consumption++;
-						dinner->wine->virtual_consumption++;
+					printf("WW: signaled P:#%d \n",dinner->id);
 
-						printf("WW: signaled P:#%d \n",dinner->id);
-
-						// to prevent that somebody else signals him twice
-						// change the state to ABOUT_TO_EAT
-						dinner->state = ABOUT_TO_EAT;
-						pthread_cond_signal(&(dinner->condition_var));
-					}
+					// to prevent that somebody else signals him twice
+					// change the state to ABOUT_TO_EAT
+					dinner->state = ABOUT_TO_EAT;
+					pthread_cond_signal(&(dinner->condition_var));
 				}
 			}
+
 		}
 
 		// print current state
-		int j = 0;
 		for(j = 0; j < (table->participant_count)/2; j++)
 		{
-			snack_packet* snack = (table->snacks)[j];
 			wine_packet* wine = (table->wines)[j];
-			printf("Currect snack:#%d count: %d\n",snack->id, snack->count);
-			printf("Currect wine:#%d count: %d\n",wine->id, wine->count);
-			printf("Currect wine:#%d virtual_consumption: %d\n",snack->id, snack->virtual_consumption);
-			printf("Currect wine:#%d virtual_consumption: %d\n\n",wine->id, wine->virtual_consumption);
+			snack_packet* snack = (table->snacks)[j];
+			printf(KGRN "Currect snack:#%d count: %d\n" RESET,snack->id, snack->count);
+			printf(KGRN "Currect wine:#%d count: %d\n" RESET,wine->id, wine->count);
 		}
+
 		printf("************************** \n\n");
 		pthread_mutex_unlock(&(mutex));
 		
