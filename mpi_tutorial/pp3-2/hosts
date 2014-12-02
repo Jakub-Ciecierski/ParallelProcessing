@@ -1,0 +1,4 @@
+omega slots=1
+compute-0-0 slots=3
+compute-0-1 slots=1
+compute-0-2 slots=5

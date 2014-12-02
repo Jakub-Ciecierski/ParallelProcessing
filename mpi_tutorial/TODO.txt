@@ -1,0 +1,4 @@
+for ssh config:
+http://www.open-mpi.org/faq/?category=rsh#ssh-keys
+
+ciecierskij@omega.mini.pw.edu.pl
