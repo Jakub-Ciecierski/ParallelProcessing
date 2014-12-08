@@ -15,7 +15,7 @@ ${FILES}: ${SOURCE}
 .PHONY: clean run
 
 run:
-	mpirun --hostfile ${HOSTFILE} ./${TARGET}
+	mpirun --hostfile ${HOSTFILE} ./${TARGET} $(file)
 	
 clean:
 	-rm -f ${FILES} ${TARGET}
