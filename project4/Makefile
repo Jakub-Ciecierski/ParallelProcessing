@@ -1,7 +1,7 @@
 CC=mpicc
 C_FLAGS=-Wall  -g
 L_FLAGS=-lm -lrt
-TARGET=zad3
+TARGET=main
 FILES=main.o
 SOURCE=main.c
 HOSTFILE=hosts
@@ -15,7 +15,7 @@ ${FILES}: ${SOURCE}
 .PHONY: clean run
 
 run:
-	mpirun --hostfile ${HOSTFILE} ./${TARGET}
+	mpirun --hostfile ${HOSTFILE} ./${TARGET} $(file)
 	
 clean:
 	-rm -f ${FILES} ${TARGET}

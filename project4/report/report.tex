@@ -1,0 +1,118 @@
+\documentclass{article}
+
+\usepackage{algorithm}
+\usepackage{pgfplots}
+\usepackage{algpseudocode}
+\usepackage[]{algorithm2e}
+
+
+\begin{document}
+
+\vspace*{3ex}
+\begin{flushright}
+{\large 12 January 2015}
+\end{flushright}
+
+\begin{flushleft}
+{\large Jakub Ciecierski\\
+}
+\end{flushleft}
+
+\hskip3cm
+
+\begin{center}
+
+\Large {\bf An upper triangular dense matrix is split by columns on N processors. Implement the backward substitution. Analyze the speed-up.}
+
+\vskip2ex
+
+{\large Parallel Processing Project 4}
+
+\end{center}
+
+\vskip20ex
+
+\section{Algorithm description}
+
+\begin{algorithm}[H]
+  \KwData{Ax=b}
+ \For{i=n-1 to 1}{
+	\State 	$x[i] = b[i] / A[i,i]$
+	
+	\For{j=0 to i-1}{
+		\State $b[j] = b[j] - x[i]*A[j,i]$
+	}\EndFor
+ }\EndFor
+ 
+ \caption{Sequential Backwards substitution }
+\end{algorithm}
+
+At i-th iteration, the process which has i-th column, computes $x_{i}$
+and updates the b vector.
+When worker is done computing, he sends the next worker updated vectors b and x.
+Since each i-th iteration requires data from the previous iteration, column-wise parallel backward substitution
+is scarcely a parallel algorithm and actually works faster sequentially as I will show in the next section.
+
+\section{Analysis of speed up}
+I created upper triangular dense matrices using a simple formula:
+
+\begin{algorithm}[H]
+ \KwData{n = Dimension of A;
+ 		val = 1; c = r = 0}
+ 
+ \While{$c > n$}{
+	\While{$r > n$}{
+			\eIf{$r > c$} {
+					\State $A[c*n + r] = 0$
+				}{
+					\State $A[c*n + r] = val$
+					\State $val++$
+				}
+	 }
+ }
+ \caption{Column major order Matrix}
+\end{algorithm}
+
+
+with various dimension size and processors count.
+
+
+\begin{tikzpicture}
+
+	\begin{axis}[
+		xlabel= Time of computation in milliseconds,
+		ylabel= Processor count,
+		height=10cm,
+		width=10cm,
+		grid=major,
+	]
+
+	\addplot coordinates {
+			(0.186, 1)
+			(1.206, 2)
+			(2.211, 4)
+			(4.350, 10)
+			(9.500, 20)
+			(33.500, 50)
+	};
+	\addlegendentry{n=100}
+
+	\addplot coordinates {
+				(18.000, 1)
+				(51.000, 2)
+				(70.000, 4)
+				(90.000, 10)
+				(115.500, 20)
+				(210.500, 50)
+		};
+		\addlegendentry{n=1000}
+	
+	\end{axis}	
+
+
+
+\end{tikzpicture}
+
+The plot clearly shows that the algorithm is not really parallel.
+In fact the computations are the fastest with one process.
+\end{document}
